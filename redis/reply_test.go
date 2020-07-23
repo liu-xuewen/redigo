@@ -16,10 +16,17 @@ package redis_test
 
 import (
 	"fmt"
+	"math"
 	"reflect"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/gomodule/redigo/redis"
+)
+
+var (
+	maxUint64Str = strconv.FormatUint(math.MaxUint64, 10)
 )
 
 type valueError struct {
@@ -67,7 +74,17 @@ var replyTests = []struct {
 		ve([]int64{4, 5}, nil),
 	},
 	{
-		"strings([[]byte, []bytev2])",
+		"uint64s([[]byte, []byte])",
+		ve(redis.Uint64s([]interface{}{[]byte(maxUint64Str), []byte("5")}, nil)),
+		ve([]uint64{math.MaxUint64, 5}, nil),
+	},
+	{
+		"Uint64Map([[]byte, []byte])",
+		ve(redis.Uint64Map([]interface{}{[]byte("key1"), []byte(maxUint64Str), []byte("key2"), []byte("5")}, nil)),
+		ve(map[string]uint64{"key1": math.MaxUint64, "key2": 5}, nil),
+	},
+	{
+		"strings([[]byte, []byte])",
 		ve(redis.Strings([]interface{}{[]byte("v1"), []byte("v2")}, nil)),
 		ve([]string{"v1", "v2"}, nil),
 	},
@@ -114,24 +131,92 @@ var replyTests = []struct {
 	{
 		"uint64(-1)",
 		ve(redis.Uint64(int64(-1), nil)),
-		ve(uint64(0), redis.ErrNegativeInt),
+		ve(uint64(0), redis.ErrNegativeInt(-1)),
 	},
 	{
 		"positions([[1, 2], nil, [3, 4]])",
 		ve(redis.Positions([]interface{}{[]interface{}{[]byte("1"), []byte("2")}, nil, []interface{}{[]byte("3"), []byte("4")}}, nil)),
 		ve([]*[2]float64{{1.0, 2.0}, nil, {3.0, 4.0}}, nil),
 	},
+	{
+		"SlowLogs(1, 1579625870, 3, {set, x, y}, localhost:1234, testClient",
+		ve(getSlowLog()),
+		ve(redis.SlowLog{ID: 1, Time: time.Unix(1579625870, 0), ExecutionTime: time.Duration(3) * time.Microsecond, Args: []string{"set", "x", "y"}, ClientAddr: "localhost:1234", ClientName: "testClient"}, nil),
+	},
+}
+
+func getSlowLog() (redis.SlowLog, error) {
+	slowLogs, _ := redis.SlowLogs([]interface{}{[]interface{}{int64(1), int64(1579625870), int64(3), []interface{}{"set", "x", "y"}, "localhost:1234", "testClient"}}, nil)
+	if err != nil {
+		return redis.SlowLog{}, err
+	}
+	return slowLogs[0], nil
 }
 
 func TestReply(t *testing.T) {
 	for _, rt := range replyTests {
-		if rt.actual.err != rt.expected.err {
+		if rt.actual.err != rt.expected.err && rt.actual.err.Error() != rt.expected.err.Error() {
 			t.Errorf("%s returned err %v, want %v", rt.name, rt.actual.err, rt.expected.err)
 			continue
 		}
 		if !reflect.DeepEqual(rt.actual.v, rt.expected.v) {
 			t.Errorf("%s=%+v, want %+v", rt.name, rt.actual.v, rt.expected.v)
 		}
+	}
+}
+
+func TestSlowLog(t *testing.T) {
+	c, err := dial()
+	if err != nil {
+		t.Errorf("TestSlowLog failed during dial with error " + err.Error())
+		return
+	}
+	defer c.Close()
+
+	resultStr, err := redis.Strings(c.Do("CONFIG", "GET", "slowlog-log-slower-than"))
+	if err != nil {
+		t.Errorf("TestSlowLog failed during CONFIG GET slowlog-log-slower-than with error " + err.Error())
+		return
+	}
+	// in case of older verion < 2.2.12 where SLOWLOG command is not supported
+	// don't run the test
+	if len(resultStr) == 0 {
+		return
+	}
+	slowLogSlowerThanOldCfg, err := strconv.Atoi(resultStr[1])
+	if err != nil {
+		t.Errorf("TestSlowLog failed during strconv.Atoi with error " + err.Error())
+		return
+	}
+	result, err := c.Do("CONFIG", "SET", "slowlog-log-slower-than", "0")
+	if err != nil && result != "OK" {
+		t.Errorf("TestSlowLog failed during CONFIG SET with error " + err.Error())
+		return
+	}
+	result, err = c.Do("SLOWLOG", "GET")
+	if err != nil {
+		t.Errorf("TestSlowLog failed during SLOWLOG GET with error " + err.Error())
+		return
+	}
+	slowLogs, err := redis.SlowLogs(result, err)
+	if err != nil {
+		t.Errorf("TestSlowLog failed during redis.SlowLogs with error " + err.Error())
+		return
+	}
+	slowLog := slowLogs[0]
+	if slowLog.Args[0] != "CONFIG" ||
+		slowLog.Args[1] != "SET" ||
+		slowLog.Args[2] != "slowlog-log-slower-than" ||
+		slowLog.Args[3] != "0" {
+		t.Errorf("%s=%+v, want %+v", "TestSlowLog test failed : ",
+			slowLog.Args[0]+" "+slowLog.Args[1]+" "+slowLog.Args[2]+" "+
+				slowLog.Args[3], "CONFIG SET slowlog-log-slower-than 0")
+	}
+	// reset the old configuration after test
+	result, err = c.Do("CONFIG", "SET", "slowlog-log-slower-than", slowLogSlowerThanOldCfg)
+	if err != nil && result != "OK" {
+		t.Errorf("TestSlowLog failed during CONFIG SET with error " + err.Error())
+		return
 	}
 }
 
