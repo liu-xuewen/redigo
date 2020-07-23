@@ -11,6 +11,10 @@
 // WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 // License for the specific language governing permissions and limitations
 // under the License.
+/*
+除非适用法律要求或书面同意，否则根据本许可证分发的软件是按“原样”分发的，没有任何明示或暗示的任何类型的担保或条件。
+请参阅许可证下管理权限和限制的特定语言的许可证。
+*/
 
 package redisx
 
