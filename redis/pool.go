@@ -37,6 +37,9 @@ var nowFunc = time.Now // for testing
 // ErrPoolExhausted is returned from a pool connection method (Do, Send,
 // Receive, Flush, Err) when the maximum number of database connections in the
 // pool has been reached.
+/*
+当达到池中的最大数据库连接数时，将从池连接方法(DO、SEND、RECEIVE、FLUSH、ERR)返回ErrPoolExhausted。
+*/
 var ErrPoolExhausted = errors.New("redigo: connection pool exhausted")
 
 var (
@@ -52,7 +55,13 @@ var (
 // application creates a pool at application startup and makes it available to
 // request handlers using a package level variable. The pool configuration used
 // here is an example, not a recommendation.
-//
+
+//Pool维护一个连接池。
+//应用程序调用GET方法从池中获取连接，并调用连接的Close方法将连接的资源返回到池。
+//以下示例显示如何在Web应用程序中使用池。
+//应用程序在应用程序启动时创建一个池，并使其可用于使用包级变量的请求处理程序。
+//此处使用的池配置是示例，而不是建议。
+
 //  func newPool(addr string) *redis.Pool {
 //    return &redis.Pool{
 //      MaxIdle: 3,
@@ -75,6 +84,9 @@ var (
 //
 // A request handler gets a connection from the pool and closes the connection
 // when the handler is done:
+/*
+请求处理程序从池中获取连接，并在处理程序完成后关闭该连接：
+*/
 //
 //  func serveHome(w http.ResponseWriter, r *http.Request) {
 //      conn := pool.Get()
@@ -84,6 +96,9 @@ var (
 //
 // Use the Dial function to authenticate connections with the AUTH command or
 // select a database with the SELECT command:
+/*
+使用拨号功能通过AUTH命令验证连接，或使用SELECT命令选择数据库：
+*/
 //
 //  pool := &redis.Pool{
 //    // Other pool configuration not shown in this example.
@@ -107,6 +122,10 @@ var (
 // Use the TestOnBorrow function to check the health of an idle connection
 // before the connection is returned to the application. This example PINGs
 // connections that have been idle more than a minute:
+/*
+在连接返回到应用程序之前，使用TestOnBorrow函数检查空闲连接的运行状况。
+此示例ping空闲时间超过一分钟的连接：
+*/
 //
 //  pool := &redis.Pool{
 //    // Other pool configuration not shown in this example.
@@ -125,6 +144,10 @@ type Pool struct {
 	//
 	// The connection returned from Dial must not be in a special state
 	// (subscribed to pubsub channel, transaction started, ...).
+	/*
+	拨号是应用程序提供的用于创建和配置连接的功能。
+	从Dial返回的连接不能处于特殊状态(订阅了pubsub通道、事务已启动等)。
+	*/
 	Dial func() (Conn, error)
 
 	// DialContext is an application supplied function for creating and configuring a
@@ -132,6 +155,10 @@ type Pool struct {
 	//
 	// The connection returned from Dial must not be in a special state
 	// (subscribed to pubsub channel, transaction started, ...).
+	/*
+	DialContext是应用程序提供的函数，用于创建和配置与给定上下文的连接。
+	从Dial返回的连接不能处于特殊状态(订阅了pubsub通道、事务已启动等)。
+	*/
 	DialContext func(ctx context.Context) (Conn, error)
 
 	// TestOnBorrow is an optional application supplied function for checking
@@ -139,6 +166,11 @@ type Pool struct {
 	// the application. Argument t is the time that the connection was returned
 	// to the pool. If the function returns an error, then the connection is
 	// closed.
+	/*
+	TestOnBorrow是应用程序提供的可选函数，用于在应用程序再次使用空闲连接之前检查该连接的健康状况。
+	参数t是连接返回池的时间。
+	如果函数返回错误，则连接关闭。
+	*/
 	TestOnBorrow func(c Conn, t time.Time) error
 
 	// Maximum number of idle connections in the pool.
@@ -146,30 +178,48 @@ type Pool struct {
 
 	// Maximum number of connections allocated by the pool at a given time.
 	// When zero, there is no limit on the number of connections in the pool.
+	/*
+	池在给定时间分配的最大连接数。
+	为零时，池中的连接数没有限制。
+	*/
 	MaxActive int
 
 	// Close connections after remaining idle for this duration. If the value
 	// is zero, then idle connections are not closed. Applications should set
 	// the timeout to a value less than the server's timeout.
+	/*
+	在此持续时间内保持空闲状态后关闭连接。
+	如果该值为零，则不会关闭空闲连接。
+	应用程序应将超时值设置为小于服务器的超时值。
+	*/
 	IdleTimeout time.Duration
 
 	// If Wait is true and the pool is at the MaxActive limit, then Get() waits
 	// for a connection to be returned to the pool before returning.
+	/*
+	如果wait为true，并且池处于MaxActive限制，则get()将等待连接返回池，然后再返回。
+	*/
 	Wait bool
 
 	// Close connections older than this duration. If the value is zero, then
 	// the pool does not close connections based on age.
+	/*
+	关闭超过此持续时间的连接。
+	如果该值为零，则池不会根据使用期限关闭连接。
+	*/
 	MaxConnLifetime time.Duration
-
+	/*
+	初始化场ch时设置为1
+	*/
 	chInitialized uint32 // set to 1 when field ch is initialized
 
 	mu           sync.Mutex    // mu protects the following fields
-	closed       bool          // set to true when the pool is closed.
-	active       int           // the number of open connections in the pool
-	ch           chan struct{} // limits open connections when p.Wait is true
+	closed       bool          // set to true when the pool is closed.				    // 池关闭时设置为true。
+	active       int           // the number of open connections in the pool			// 池中打开的连接数
+	ch           chan struct{} // limits open connections when p.Wait is true			// 当p.Wait为true时限制打开的连接
 	idle         idleList      // idle connections
-	waitCount    int64         // total number of connections waited for.
-	waitDuration time.Duration // total time waited for new connections.
+	waitCount    int64         // total number of connections waited for.				// 等待的连接总数。
+	waitDuration time.Duration // total time waited for new connections.				// 等待新连接的总时间。
 }
 
 // NewPool creates a new pool.
@@ -184,6 +234,12 @@ func NewPool(newFn func() (Conn, error), maxIdle int) *Pool {
 // error handling to the first use of the connection. If there is an error
 // getting an underlying connection, then the connection Err, Do, Send, Flush
 // and Receive methods return that error.
+/*
+GET获取连接。
+应用程序必须关闭返回的连接。
+此方法始终返回有效连接，以便应用程序可以将错误处理推迟到连接的第一次使用。
+如果获取基础连接时出错，则连接Err、Do、Send、Flush和Receive方法将返回该错误。
+*/
 func (p *Pool) Get() Conn {
 	// GetContext returns errorConn in the first argument when an error occurs.
 	c, _ := p.GetContext(context.Background())
@@ -198,6 +254,13 @@ func (p *Pool) Get() Conn {
 //
 // If the function completes without error, then the application must close the
 // returned connection.
+/*
+GetContext使用提供的上下文获取连接。
+提供的上下文必须为非空。
+如果上下文在连接完成之前过期，则会返回错误。
+上下文的任何过期都不会影响返回的连接。
+如果函数在没有错误的情况下完成，则应用程序必须关闭返回的连接。
+*/
 func (p *Pool) GetContext(ctx context.Context) (Conn, error) {
 	// Wait until there is a vacant connection in the pool.
 	waited, err := p.waitVacantConn(ctx)
@@ -269,6 +332,7 @@ func (p *Pool) GetContext(ctx context.Context) (Conn, error) {
 }
 
 // PoolStats contains pool statistics.
+// PoolStats包含池统计信息。
 type PoolStats struct {
 	// ActiveCount is the number of connections in the pool. The count includes
 	// idle connections and connections in use.
@@ -301,6 +365,10 @@ func (p *Pool) Stats() PoolStats {
 
 // ActiveCount returns the number of connections in the pool. The count
 // includes idle connections and connections in use.
+/*
+ActiveCount返回池中的连接数。
+该计数包括空闲连接和正在使用的连接。
+*/
 func (p *Pool) ActiveCount() int {
 	p.mu.Lock()
 	active := p.active
@@ -365,6 +433,11 @@ func (p *Pool) lazyInit() {
 //
 // If there were no vacant connection in the pool right away it returns the time spent waiting
 // for that connection to appear in the pool.
+/*
+如果启用了等待并且池大小受限，waitVacantConn将等待池中的空闲连接，否则立即返回。
+如果CTX在此之前过期，则返回错误。
+如果池中立即没有空闲连接，则返回等待该连接出现在池中所花费的时间。
+*/
 func (p *Pool) waitVacantConn(ctx context.Context) (waited time.Duration, err error) {
 	if !p.Wait || p.MaxActive <= 0 {
 		// No wait or no connection limit.
@@ -375,6 +448,9 @@ func (p *Pool) waitVacantConn(ctx context.Context) (waited time.Duration, err er
 
 	// wait indicates if we believe it will block so its not 100% accurate
 	// however for stats it should be good enough.
+	/*
+	等待指示我们是否相信它会阻塞，所以它不是100%！A(缺少)精确度，但是对于统计数据，它应该足够好了。
+	*/
 	wait := len(p.ch) == 0
 	var start time.Time
 	if wait {
@@ -385,6 +461,9 @@ func (p *Pool) waitVacantConn(ctx context.Context) (waited time.Duration, err er
 	case <-p.ch:
 		// Additionally check that context hasn't expired while we were waiting,
 		// because `select` picks a random `case` if several of them are "ready".
+		/*
+		另外，在我们等待的时候检查上下文是否没有过期，因为`select`会随机选择一个`case`，如果其中有几个“就绪”的话。
+		*/
 		select {
 		case <-ctx.Done():
 			return 0, ctx.Err()
@@ -479,6 +558,9 @@ func (ac *activeConn) Close() error {
 		pc.c.Send("PUNSUBSCRIBE")
 		// To detect the end of the message stream, ask the server to echo
 		// a sentinel value and read until we see that value.
+		/*
+		要检测消息流的结尾，请要求服务器回显一个哨兵值并读取，直到我们看到该值。
+		*/
 		sentinelOnce.Do(initSentinel)
 		pc.c.Send("ECHO", sentinel)
 		pc.c.Flush()
